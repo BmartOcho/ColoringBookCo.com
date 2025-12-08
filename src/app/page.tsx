@@ -26,6 +26,7 @@ export default function Home() {
 
     setLoading(true);
     setError(null);
+    setGeneratedImage(null); // Clear previous
 
     try {
       const formData = new FormData();
@@ -36,26 +37,42 @@ export default function Home() {
         body: formData,
       });
 
-      const data = await response.json();
+      if (!response.ok) throw new Error("Connection failed");
+      if (!response.body) throw new Error("No response stream");
 
-      if (!response.ok) {
-        throw new Error(data.error || "Failed to generate image");
-      }
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
 
-      // Replicate usually returns an array of image URLs
-      if (Array.isArray(data.output) && data.output.length > 0) {
-        setGeneratedImage(data.output[1]); // Index 1 is usually the generated image, Index 0 might be the edge map depending on model. 
-        // For jagilley/controlnet-canny:
-        // output[0] is often the processing result or vice versa. Let's inspect the array blindly or pick the last one.
-        // Actually, for jagilley/controlnet-canny, it returns [result_image, canny_edge_map].
-        // We want the result image (usually index 1 if it returns both, or check).
-        // Let's assume index 1 is the result based on common ControlNet behavior, but we might need to swap.
-        // Wait, standard return for that model is [output_image, processed_image (canny map)]. 
-        // Actually it returns a list. We will safely try to show the LAST one or we should just show all for debug.
-        // Let's pick '1' for now, but I'll add a check.
-        setGeneratedImage(data.output[1] || data.output[0]);
-      } else {
-        throw new Error("No output from model");
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        const chunk = decoder.decode(value);
+        const lines = chunk.split("\n");
+
+        for (const line of lines) {
+          if (line.startsWith("data: ")) {
+            try {
+              const data = JSON.parse(line.replace("data: ", ""));
+
+              if (data.status === "step1_start") {
+                // Optional: Show status message
+              } else if (data.status === "step1_progress" && data.image) {
+                setGeneratedImage(data.image); // Show cartoon fading in
+              } else if (data.status === "step1_complete" && data.image) {
+                setGeneratedImage(data.image);
+              } else if (data.status === "step2_start") {
+                // Optional: status update
+              } else if (data.status === "complete" && data.image) {
+                setGeneratedImage(data.image);
+              } else if (data.status === "error") {
+                throw new Error(data.message);
+              }
+            } catch (e) {
+              console.log("JSON Parse Error on chunk", line);
+            }
+          }
+        }
       }
 
     } catch (err: any) {

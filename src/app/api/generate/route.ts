@@ -1,95 +1,153 @@
 
 import { NextRequest, NextResponse } from "next/server";
-import Replicate from "replicate";
 
-export const maxDuration = 60; // Allow sufficient timeout for AI generation
+export const maxDuration = 60;
+export const dynamic = 'force-dynamic';
 
 export async function POST(req: NextRequest) {
     try {
         const formData = await req.formData();
         const image = formData.get("image") as File;
 
-        if (!image) {
-            return NextResponse.json({ error: "No image provided" }, { status: 400 });
-        }
+        if (!image) return NextResponse.json({ error: "No image provided" }, { status: 400 });
+        if (!process.env.OPENAI_API_KEY) return NextResponse.json({ error: "OPENAI_API_KEY is not configured" }, { status: 500 });
 
-        if (!process.env.REPLICATE_API_TOKEN) {
-            return NextResponse.json(
-                { error: "REPLICATE_API_TOKEN is not configured" },
-                { status: 500 }
-            );
-        }
+        const encoder = new TextEncoder();
+        const decoder = new TextDecoder();
 
-        const replicate = new Replicate({
-            auth: process.env.REPLICATE_API_TOKEN,
-        });
+        const stream = new ReadableStream({
+            async start(controller) {
+                const sendEvent = (data: any) => {
+                    controller.enqueue(encoder.encode(`data: ${JSON.stringify(data)}\n\n`));
+                };
 
-        const arrayBuffer = await image.arrayBuffer();
-        const buffer = Buffer.from(arrayBuffer);
-        const base64Image = `data:${image.type};base64,${buffer.toString("base64")}`;
+                try {
+                    const arrayBuffer = await image.arrayBuffer();
+                    // STEP 1: Generate Cartoon with OpenAI "gpt-image-1" (Streaming)
+                    sendEvent({ status: "step1_start", message: "Generating Cartoon..." });
 
-        // Get the latest version of the model dynamically to avoid hardcoding dead hashes
-        // Using 'lucataco/controlnet-canny-sdxl' or 'lucataco/controlnet-canny'
-        // Let's try to fetch the model first. 
-        // Recommended model for consistency: lucataco/controlnet-canny (SDXL based)
+                    const openAIFormData = new FormData();
+                    openAIFormData.append("image", image);
+                    openAIFormData.append("model", "gpt-image-1");
+                    openAIFormData.append("prompt", "Turn this person into a 3D Disney Pixar character. Cute, big eyes, smooth skin, vibrant colors. Keep the pose and expression matching the original. White background.");
+                    openAIFormData.append("input_fidelity", "high");
+                    openAIFormData.append("output_format", "png");
+                    openAIFormData.append("stream", "true");
+                    openAIFormData.append("partial_images", "3");
 
-        // NOTE: If this fails, we can fall back to a known hash or a different model.
-        let modelVersionId = "aff48af9c68d162388d230a2ab003f68d2638d88307bdaf1c2f1ac95079c9669"; // jagilley fallback
+                    const openAIResponse = await fetch("https://api.openai.com/v1/images/edits", {
+                        method: "POST",
+                        headers: { "Authorization": `Bearer ${process.env.OPENAI_API_KEY}` },
+                        body: openAIFormData
+                    });
 
-        try {
-            // Search for jagilley first as it was the original plan, but let's try to get its latest version.
-            // actually jagilley/controlnet-canny is quite old (SD 1.5).
-            // Let's use standard stability-ai/sdxl with controlnet if possible, OR
-            // Use a verified public model. 'lucataco/controlnet-canny' is good.
-            const model = await replicate.models.get("lucataco", "sdxl-controlnet-canny");
-            // Note: Model name might be `sdxl-controlnet-canny` or `controlnet-canny-sdxl`.
-            // Let's use the explicit `fofr/sdxl-controlnet-canny` or similar if `lucataco` is ambiguous.
-            // Actually, let's just use the `replicate.run` with the model name, Replicate client might support it.
-            // But typically strict mode requires "owner/name:version".
+                    if (!openAIResponse.ok) {
+                        const errText = await openAIResponse.text();
+                        throw new Error(`OpenAI Step 1 Failed: ${openAIResponse.status} ${errText}`);
+                    }
 
-            if (model && model.latest_version) {
-                modelVersionId = model.latest_version.id;
-            }
-        } catch (e) {
-            console.log("Could not fetch latest version, using hardcoded fallback or erroring.");
-            // Fallback to a known working SDXL ControlNet Canny if possible or keep jagilley.
-            // Let's try a known working SDXL Canny hash from a popular model if the dynamic fetch fails.
-            // Model: diffusers/controlnet-canny-sdxl-1.0 is not a replicate runable model directly usually.
-            // Using `xlabs-ai/flux-dev-controlnet-canny` (new flux model) or `lucataco/sdxl-controlnet-canny`
-        }
+                    if (!openAIResponse.body) throw new Error("No response body from OpenAI");
 
-        // Hardcoded known working SDXL Canny (lucataco) if dynamic fails:
-        // This is a guess, but better to use the specific one I found in search context if available.
-        // Let's use a very standard one: `stability-ai/sdxl:39ed52f2a78e934b3ba6e2a89f5b1c712de7dfea535525255b1aa35c5565e08b` doesn't have controlnet.
+                    const reader = openAIResponse.body.getReader();
+                    let cartoonBase64 = "";
+                    let textBuffer = "";
 
-        // Let's go with `jagilley/controlnet-canny` BUT get the version dynamically to ensure it's valid.
-        const model = await replicate.models.get("jagilley", "controlnet-canny");
-        const version = model.latest_version.id;
+                    // Read the stream from OpenAI
+                    while (true) {
+                        const { done, value } = await reader.read();
+                        if (done) break;
 
-        const output = await replicate.run(
-            `jagilley/controlnet-canny:${version}`,
-            {
-                input: {
-                    image: base64Image,
-                    prompt: "coloring book page, disney style, clean line art, black and white, white background, cute, simple",
-                    // jagilley model specific params
-                    num_samples: "1",
-                    image_resolution: "512",
-                    ddim_steps: 20,
-                    scale: 9,
-                    eta: 0,
-                    a_prompt: "best quality, extremely detailed",
-                    n_prompt: "shading, complex details, realistic, photograph, color, grayscale, text, watermark"
+                        textBuffer += decoder.decode(value, { stream: true });
+                        const lines = textBuffer.split('\n');
+
+                        // Keep the last line in the buffer as it might be incomplete
+                        textBuffer = lines.pop() || "";
+
+                        for (const line of lines) {
+                            const trimmedLine = line.trim();
+                            if (trimmedLine.startsWith('data: ')) {
+                                const jsonStr = trimmedLine.replace('data: ', '').trim();
+                                if (jsonStr === '[DONE]') continue;
+                                try {
+                                    const eventData = JSON.parse(jsonStr);
+                                    let pImgKey = null;
+
+                                    // OpenAI Image Streaming keys
+                                    if (eventData.b64_json) pImgKey = eventData.b64_json;
+                                    else if (eventData.image) pImgKey = eventData.image;
+                                    else if (eventData.data && eventData.data[0] && eventData.data[0].b64_json) pImgKey = eventData.data[0].b64_json;
+
+                                    if (pImgKey) {
+                                        const pImg = `data:image/png;base64,${pImgKey}`;
+                                        sendEvent({ status: "step1_progress", image: pImg });
+                                        cartoonBase64 = pImg;
+                                    }
+                                } catch (e) {
+                                    // Ignore JSON parse errors for partial chunks
+                                }
+                            }
+                        }
+                    }
+
+                    sendEvent({ status: "step1_complete", image: cartoonBase64 });
+
+                    // STEP 2: Vectorize with gpt-image-1-mini (Fast)
+                    sendEvent({ status: "step2_start", message: "Vectorizing Line Art..." });
+
+                    if (!cartoonBase64) throw new Error("Step 1 failed to produce an image. Please try again.");
+
+                    const cartoonBuffer = Buffer.from(cartoonBase64.split(",")[1], 'base64');
+                    const cartoonBlob = new Blob([cartoonBuffer], { type: 'image/png' });
+
+                    const step2FormData = new FormData();
+                    step2FormData.append("image", cartoonBlob, "cartoon.png");
+                    step2FormData.append("model", "gpt-image-1-mini");
+                    step2FormData.append("prompt", "Convert this 3D character into a clean, black and white coloring book page. Thick bold outlines, no shading, no grayscale, pure white background. Keep the character's details recognizable but simplified for coloring.");
+                    step2FormData.append("output_format", "png");
+
+                    const step2Response = await fetch("https://api.openai.com/v1/images/edits", {
+                        method: "POST",
+                        headers: { "Authorization": `Bearer ${process.env.OPENAI_API_KEY}` },
+                        body: step2FormData
+                    });
+
+                    if (!step2Response.ok) {
+                        const err = await step2Response.text();
+                        throw new Error(`Step 2 Failed: ${err}`);
+                    }
+
+                    const step2Data = await step2Response.json();
+                    let finalBase64 = "";
+                    if (step2Data.data && step2Data.data[0]) {
+                        if (step2Data.data[0].b64_json) finalBase64 = `data:image/png;base64,${step2Data.data[0].b64_json}`;
+                        else if (step2Data.data[0].image) finalBase64 = `data:image/png;base64,${step2Data.data[0].image}`;
+                        else if (step2Data.data[0].url) {
+                            const r = await fetch(step2Data.data[0].url);
+                            const b = await r.arrayBuffer();
+                            finalBase64 = `data:image/png;base64,${Buffer.from(b).toString('base64')}`;
+                        }
+                    }
+
+                    sendEvent({ status: "complete", image: finalBase64 });
+                    controller.close();
+
+                } catch (error: any) {
+                    console.error("Stream Error:", error);
+                    sendEvent({ status: "error", message: error.message });
+                    controller.close();
                 }
             }
-        );
+        });
 
-        return NextResponse.json({ output });
-    } catch (error: any) {
-        console.error("Error generating image:", error);
-        return NextResponse.json(
-            { error: error.message || "Something went wrong" },
-            { status: 500 }
-        );
+        return new NextResponse(stream, {
+            headers: {
+                'Content-Type': 'text/event-stream',
+                'Cache-Control': 'no-cache',
+                'Connection': 'keep-alive',
+            },
+        });
+    } catch (e: any) {
+        console.error("Critical API Error:", e);
+        return NextResponse.json({ error: e.message || "Internal Server Error" }, { status: 500 });
     }
 }
