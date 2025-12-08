@@ -1,0 +1,7 @@
+replicate
+google-generativeai
+watchdog
+python-dotenv
+requests
+Pillow
+numpy

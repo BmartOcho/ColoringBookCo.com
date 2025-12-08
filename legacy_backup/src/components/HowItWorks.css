@@ -1,0 +1,93 @@
+.how-it-works {
+    background: var(--white);
+    border-radius: 40px 40px 0 0;
+    /* curved top */
+}
+
+.section-title {
+    font-size: 2.5rem;
+    margin-bottom: 10px;
+}
+
+.section-subtitle {
+    color: var(--text-light);
+    margin-bottom: 50px;
+}
+
+.steps-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 30px;
+}
+
+.step-card {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    position: relative;
+}
+
+.step-number {
+    background: var(--secondary);
+    width: 30px;
+    height: 30px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-weight: 700;
+    margin-bottom: 15px;
+    position: absolute;
+    top: -15px;
+    z-index: 10;
+}
+
+.step-icon {
+    width: 80px;
+    height: 80px;
+    background: linear-gradient(135deg, #f0f0f0, #ffffff);
+    border-radius: 20px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 2rem;
+    margin-bottom: 20px;
+    box-shadow: 0 4px 10px rgba(0, 0, 0, 0.05);
+}
+
+/* Specific colors for icons based on screenshot logic if desired, 
+   but simplistic is fine too. Let's make them colorful backgrounds if the icon is transparent, 
+   but here they are emojis. */
+
+.step-card:nth-child(1) .step-icon {
+    background: #f06292;
+    color: white;
+}
+
+.step-card:nth-child(2) .step-icon {
+    background: #b39ddb;
+    color: white;
+}
+
+.step-card:nth-child(3) .step-icon {
+    background: #4dd0e1;
+    color: white;
+}
+
+.step-title {
+    font-size: 1.2rem;
+    margin-bottom: 10px;
+}
+
+.step-text {
+    color: var(--text-light);
+    font-size: 0.9rem;
+    max-width: 250px;
+}
+
+@media (max-width: 768px) {
+    .steps-grid {
+        grid-template-columns: 1fr;
+        gap: 50px;
+    }
+}

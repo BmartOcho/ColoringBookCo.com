@@ -1,0 +1,50 @@
+.upload-section {
+    background: #f9f9f9;
+}
+
+.upload-zone {
+    background: white;
+    border: 3px dashed #e0e0e0;
+    border-radius: var(--radius);
+    padding: 60px 20px;
+    max-width: 600px;
+    margin: 0 auto;
+    transition: all 0.3s ease;
+    cursor: pointer;
+}
+
+.upload-zone.drag-over {
+    border-color: var(--primary);
+    background: #fdf5ff;
+}
+
+.upload-zone:hover {
+    border-color: #bdbdbd;
+}
+
+.upload-icon {
+    font-size: 3rem;
+    margin-bottom: 20px;
+}
+
+.upload-btn {
+    background: var(--primary);
+    color: white;
+    padding: 12px 30px;
+    border-radius: 50px;
+    font-weight: 600;
+    display: inline-block;
+    margin: 10px 0;
+    cursor: pointer;
+    transition: background 0.2s;
+}
+
+.upload-btn:hover {
+    background: var(--primary-hover);
+}
+
+.upload-note {
+    font-size: 0.8rem;
+    color: var(--text-light);
+    margin-top: 20px;
+}

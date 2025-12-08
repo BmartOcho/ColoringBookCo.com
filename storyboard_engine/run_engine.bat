@@ -1,0 +1,6 @@
+@echo off
+cd /d "%~dp0"
+echo Starting Storyboard Engine...
+echo Monitoring 'input_stories' for new projects...
+python main.py
+pause
