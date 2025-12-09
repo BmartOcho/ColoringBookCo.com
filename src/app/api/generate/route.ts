@@ -30,7 +30,7 @@ export async function POST(req: NextRequest) {
                     openAIFormData.append("image", image);
                     openAIFormData.append("model", "gpt-image-1");
                     openAIFormData.append("prompt", "Turn this person into a 3D Disney Pixar character. Cute, big eyes, smooth skin, vibrant colors. Keep the pose and expression matching the original. White background.");
-                    openAIFormData.append("input_fidelity", "high");
+                    // openAIFormData.append("input_fidelity", "high"); // Removed for speed
                     openAIFormData.append("output_format", "png");
                     openAIFormData.append("stream", "true");
                     openAIFormData.append("partial_images", "3");
@@ -43,6 +43,7 @@ export async function POST(req: NextRequest) {
 
                     if (!openAIResponse.ok) {
                         const errText = await openAIResponse.text();
+                        console.error("OpenAI Error:", openAIResponse.status, errText);
                         throw new Error(`OpenAI Step 1 Failed: ${openAIResponse.status} ${errText}`);
                     }
 
@@ -51,6 +52,29 @@ export async function POST(req: NextRequest) {
                     const reader = openAIResponse.body.getReader();
                     let cartoonBase64 = "";
                     let textBuffer = "";
+
+                    const processLine = (line: string) => {
+                        const trimmedLine = line.trim();
+                        if (trimmedLine.startsWith('data: ')) {
+                            const jsonStr = trimmedLine.replace('data: ', '').trim();
+                            if (jsonStr === '[DONE]') return;
+                            try {
+                                const eventData = JSON.parse(jsonStr);
+                                let pImgKey = null;
+                                if (eventData.b64_json) pImgKey = eventData.b64_json;
+                                else if (eventData.image) pImgKey = eventData.image;
+                                else if (eventData.data && eventData.data[0] && eventData.data[0].b64_json) pImgKey = eventData.data[0].b64_json;
+
+                                if (pImgKey) {
+                                    const pImg = `data:image/png;base64,${pImgKey}`;
+                                    sendEvent({ status: "step1_progress", image: pImg });
+                                    cartoonBase64 = pImg;
+                                }
+                            } catch (e) {
+                                // console.log("Partial chunk parse fail");
+                            }
+                        }
+                    }
 
                     // Read the stream from OpenAI
                     while (true) {
@@ -64,32 +88,21 @@ export async function POST(req: NextRequest) {
                         textBuffer = lines.pop() || "";
 
                         for (const line of lines) {
-                            const trimmedLine = line.trim();
-                            if (trimmedLine.startsWith('data: ')) {
-                                const jsonStr = trimmedLine.replace('data: ', '').trim();
-                                if (jsonStr === '[DONE]') continue;
-                                try {
-                                    const eventData = JSON.parse(jsonStr);
-                                    let pImgKey = null;
-
-                                    // OpenAI Image Streaming keys
-                                    if (eventData.b64_json) pImgKey = eventData.b64_json;
-                                    else if (eventData.image) pImgKey = eventData.image;
-                                    else if (eventData.data && eventData.data[0] && eventData.data[0].b64_json) pImgKey = eventData.data[0].b64_json;
-
-                                    if (pImgKey) {
-                                        const pImg = `data:image/png;base64,${pImgKey}`;
-                                        sendEvent({ status: "step1_progress", image: pImg });
-                                        cartoonBase64 = pImg;
-                                    }
-                                } catch (e) {
-                                    // Ignore JSON parse errors for partial chunks
-                                }
-                            }
+                            processLine(line);
                         }
                     }
 
-                    sendEvent({ status: "step1_complete", image: cartoonBase64 });
+                    // Flush remaining buffer
+                    if (textBuffer.trim()) {
+                        processLine(textBuffer);
+                    }
+
+                    if (cartoonBase64) {
+                        sendEvent({ status: "step1_complete", image: cartoonBase64 });
+                    } else {
+                        // If no image found, we let Step 2 fail naturally or throw specific error?
+                        // We throw here or let Step 2 throw. The code below checks cartoonBase64.
+                    }
 
                     // STEP 2: Vectorize with gpt-image-1-mini (Fast)
                     sendEvent({ status: "step2_start", message: "Vectorizing Line Art..." });

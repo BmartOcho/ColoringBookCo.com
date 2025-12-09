@@ -42,35 +42,54 @@ export default function Home() {
 
       const reader = response.body.getReader();
       const decoder = new TextDecoder();
+      let buffer = "";
 
       while (true) {
         const { done, value } = await reader.read();
-        if (done) break;
 
-        const chunk = decoder.decode(value);
-        const lines = chunk.split("\n");
+        if (value) {
+          buffer += decoder.decode(value, { stream: true });
+        }
+
+        if (done) {
+          // Flush remaining buffer
+          if (buffer.trim()) {
+            const lines = buffer.split("\n");
+            for (const line of lines) processLine(line);
+          }
+          break;
+        }
+
+        const lines = buffer.split("\n");
+        // Keep the last line in the buffer as it might be incomplete
+        buffer = lines.pop() || "";
 
         for (const line of lines) {
-          if (line.startsWith("data: ")) {
-            try {
-              const data = JSON.parse(line.replace("data: ", ""));
+          processLine(line);
+        }
+      }
 
-              if (data.status === "step1_start") {
-                // Optional: Show status message
-              } else if (data.status === "step1_progress" && data.image) {
-                setGeneratedImage(data.image); // Show cartoon fading in
-              } else if (data.status === "step1_complete" && data.image) {
-                setGeneratedImage(data.image);
-              } else if (data.status === "step2_start") {
-                // Optional: status update
-              } else if (data.status === "complete" && data.image) {
-                setGeneratedImage(data.image);
-              } else if (data.status === "error") {
-                throw new Error(data.message);
-              }
-            } catch (e) {
-              console.log("JSON Parse Error on chunk", line);
+      function processLine(line: string) {
+        const trimmed = line.trim();
+        if (trimmed.startsWith("data: ")) {
+          try {
+            const data = JSON.parse(trimmed.replace("data: ", ""));
+
+            if (data.status === "step1_start") {
+              // Start
+            } else if (data.status === "step1_progress" && data.image) {
+              setGeneratedImage(data.image);
+            } else if (data.status === "step1_complete" && data.image) {
+              setGeneratedImage(data.image);
+            } else if (data.status === "step2_start") {
+              // Step 2 start
+            } else if (data.status === "complete" && data.image) {
+              setGeneratedImage(data.image);
+            } else if (data.status === "error") {
+              throw new Error(data.message);
             }
+          } catch (e) {
+            console.warn("Parse Error", e);
           }
         }
       }
