@@ -233,9 +233,14 @@ export function BookPreview({ jobId, scenes }: BookPreviewProps) {
                         <button className="px-8 py-4 bg-white text-purple-600 font-bold rounded-xl hover:bg-purple-50 transition-colors">
                             📦 Order Printed Book - $24.99
                         </button>
-                        <button className="px-8 py-4 bg-purple-500 text-white font-bold rounded-xl hover:bg-purple-400 transition-colors border-2 border-white">
+                        <a
+                            href={`/api/book/${jobId}/download`}
+                            target="_blank"
+                            download
+                            className="px-8 py-4 bg-purple-500 text-white font-bold rounded-xl hover:bg-purple-400 transition-colors border-2 border-white flex items-center justify-center"
+                        >
                             📥 Download PDF - $9.99
-                        </button>
+                        </a>
                     </div>
                 </div>
             )}
