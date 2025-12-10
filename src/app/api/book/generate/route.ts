@@ -67,8 +67,8 @@ export async function POST(req: NextRequest) {
                         });
 
                         try {
-                            // Generate image using OpenAI gpt-image-1-mini
-                            const imageData = await generatePageImage(scene.image_prompt);
+                            // Generate image using OpenAI gpt-image-1-mini with character reference
+                            const imageData = await generatePageImage(scene.image_prompt, job.character_image || undefined);
 
                             // Save to database
                             updateSceneImage(jobId, scene.scene_number, imageData);
@@ -124,13 +124,65 @@ export async function POST(req: NextRequest) {
     }
 }
 
-async function generatePageImage(imagePrompt: string): Promise<string> {
+async function generatePageImage(imagePrompt: string, characterImage?: string): Promise<string> {
     const openaiKey = process.env.OPENAI_API_KEY;
     if (!openaiKey) {
         throw new Error("OpenAI API key not configured");
     }
 
-    // Use gpt-image-1-mini for faster generation
+    // If we have a character reference image, use image-to-image editing for consistency
+    if (characterImage) {
+        try {
+            // Convert base64 character image to Blob
+            const base64Data = characterImage.includes('base64,')
+                ? characterImage.split('base64,')[1]
+                : characterImage;
+
+            const buffer = Buffer.from(base64Data, 'base64');
+            const blob = new Blob([buffer], { type: 'image/png' });
+
+            const formData = new FormData();
+            formData.append("image", blob, "character.png");
+            formData.append("model", "gpt-image-1-mini"); // Using the same model as vectorization for style match
+            formData.append("prompt", `${imagePrompt} Maintain the character's appearance from the reference image exactly.`);
+            formData.append("output_format", "png");
+            formData.append("n", "1");
+            formData.append("size", "1024x1024");
+            // formData.append("response_format", "b64_json"); // Some edit endpoints don't support this, check return
+
+            const response = await fetch("https://api.openai.com/v1/images/edits", {
+                method: "POST",
+                headers: {
+                    "Authorization": `Bearer ${openaiKey}`
+                },
+                body: formData
+            });
+
+            if (!response.ok) {
+                const errorText = await response.text();
+                // Fallback to generation if edit fails (e.g. image format issues)
+                console.warn("Image edit failed, falling back to generation:", errorText);
+                return generatePageImage(imagePrompt); // Recursive call without char image to fallback
+            }
+
+            const data = await response.json();
+
+            if (data.data && data.data[0]) {
+                if (data.data[0].b64_json) {
+                    return `data:image/png;base64,${data.data[0].b64_json}`;
+                } else if (data.data[0].url) {
+                    // Fetch the URL to get base64
+                    const imgResponse = await fetch(data.data[0].url);
+                    const imgBuffer = await imgResponse.arrayBuffer();
+                    return `data:image/png;base64,${Buffer.from(imgBuffer).toString('base64')}`;
+                }
+            }
+        } catch (e) {
+            console.warn("Character reference generation failed, falling back:", e);
+        }
+    }
+
+    // Fallback: Standard DALL-E 3 Generation (if no character image or edit failed)
     const response = await fetch("https://api.openai.com/v1/images/generations", {
         method: "POST",
         headers: {
@@ -138,7 +190,7 @@ async function generatePageImage(imagePrompt: string): Promise<string> {
             "Content-Type": "application/json"
         },
         body: JSON.stringify({
-            model: "gpt-image-1-mini",
+            model: "dall-e-3",
             prompt: imagePrompt,
             n: 1,
             size: "1024x1024",

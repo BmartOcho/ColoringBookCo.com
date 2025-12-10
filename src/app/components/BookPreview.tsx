@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import Image from "next/image";
 
 interface Scene {
@@ -25,8 +25,13 @@ export function BookPreview({ jobId, scenes }: BookPreviewProps) {
     const [isGenerating, setIsGenerating] = useState(true);
     const [error, setError] = useState<string | null>(null);
 
+    const initialized = useRef(false);
+
     useEffect(() => {
-        generateBook();
+        if (!initialized.current) {
+            initialized.current = true;
+            generateBook();
+        }
     }, [jobId]);
 
     const generateBook = async () => {
