@@ -68,7 +68,7 @@ export async function POST(req: NextRequest) {
 
                         try {
                             // Generate image using OpenAI gpt-image-1-mini with character reference
-                            const imageData = await generatePageImage(scene.image_prompt, job.character_image || undefined);
+                            const imageData = await generatePageImage(scene.image_prompt, job.character_image || undefined, job.character_name);
 
                             // Save to database
                             updateSceneImage(jobId, scene.scene_number, imageData);
@@ -124,7 +124,7 @@ export async function POST(req: NextRequest) {
     }
 }
 
-async function generatePageImage(imagePrompt: string, characterImage?: string): Promise<string> {
+async function generatePageImage(imagePrompt: string, characterImage?: string, characterName?: string): Promise<string> {
     const openaiKey = process.env.OPENAI_API_KEY;
     if (!openaiKey) {
         throw new Error("OpenAI API key not configured");
@@ -144,7 +144,8 @@ async function generatePageImage(imagePrompt: string, characterImage?: string): 
             const formData = new FormData();
             formData.append("image", blob, "character.png");
             formData.append("model", "gpt-image-1-mini"); // Using the same model as vectorization for style match
-            formData.append("prompt", `${imagePrompt} Maintain the character's appearance from the reference image exactly.`);
+            const name = characterName || "the original character";
+            formData.append("prompt", `${imagePrompt} Reference Image: This is ${name}. Use the reference image ONLY to draw ${name}. Any other characters in the scene must look completely different and distinct.`);
             formData.append("output_format", "png");
             formData.append("n", "1");
             formData.append("size", "1024x1024");

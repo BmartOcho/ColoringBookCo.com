@@ -289,10 +289,11 @@ The story should follow this arc based on user's choices:
 - Resolution: ${plotPoints[3] || 'a happy ending'}
 
 IMPORTANT for imagePrompt:
-- Always include the character's name and physical description
-- Describe the scene in vivid detail (setting, action, expression, objects)
+- Always include the character's name ({characterName}) and physical description in the prompt.
+- When new characters are introduced (friends, animals, siblings), EXPLICITLY describe them as distinct from {characterName}.
+- Describe the composition clearly (e.g., "{characterName} stands on the left, looking at the small cat on the right").
 - End each imagePrompt with: "Coloring book style, black and white line art, thick bold outlines, no shading, white background."
-- Maintain consistency in character appearance across all scenes (same clothing, features, etc.)
+- Maintain consistency in {characterName}'s appearance, but ensure other characters look completely different.
 
 Respond with a JSON array of exactly 25 scene objects. No markdown, just valid JSON.`;
 
