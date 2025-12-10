@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { createJob, saveScenes, updateJobStatus } from "@/lib/db";
 
 export const maxDuration = 120; // Allow longer for full story generation
 export const dynamic = 'force-dynamic';
@@ -58,6 +59,7 @@ interface StoryboardRequest {
     storyType?: StoryType;
     characterName?: string;
     characterDescription?: string;
+    characterImage?: string; // Base64 of character coloring page
     userInput?: string;
     plotPoints?: string[];
     interactionNumber?: number;
@@ -72,7 +74,7 @@ interface Scene {
 export async function POST(req: NextRequest) {
     try {
         const body: StoryboardRequest = await req.json();
-        const { action, storyType, characterName, characterDescription, userInput, plotPoints, interactionNumber } = body;
+        const { action, storyType, characterName, characterDescription, characterImage, userInput, plotPoints, interactionNumber } = body;
 
         const encoder = new TextEncoder();
 
@@ -123,10 +125,20 @@ export async function POST(req: NextRequest) {
 
                         // If we have all 5 inputs (including initial story type selection as implicit #0), generate the story
                         if (interactionNumber >= 4) {
+                            // Create job in database
+                            const jobId = createJob(
+                                characterName,
+                                characterDescription || null,
+                                characterImage || null,
+                                storyType,
+                                currentPlotPoints
+                            );
+
                             // Time to generate the full story!
                             sendEvent({
                                 type: 'generating',
                                 message: 'Creating your personalized 25-scene story...',
+                                jobId: jobId,
                                 plotPoints: currentPlotPoints
                             });
 
@@ -137,13 +149,42 @@ export async function POST(req: NextRequest) {
                                 characterDescription || '',
                                 currentPlotPoints,
                                 config,
-                                sendEvent
+                                (data: object) => {
+                                    // Filter out imagePrompt from scene events sent to client
+                                    const eventData = data as any;
+                                    if (eventData.type === 'scene') {
+                                        sendEvent({
+                                            type: 'scene',
+                                            sceneNumber: eventData.sceneNumber,
+                                            storyText: eventData.storyText
+                                            // imagePrompt intentionally omitted
+                                        });
+                                    } else {
+                                        sendEvent(data);
+                                    }
+                                }
                             );
 
+                            // Save all scenes to database (with prompts)
+                            saveScenes(jobId, scenes.map(s => ({
+                                sceneNumber: s.sceneNumber,
+                                storyText: s.storyText,
+                                imagePrompt: s.imagePrompt
+                            })));
+
+                            // Update job status
+                            updateJobStatus(jobId, 'complete');
+
+                            // Send completion with jobId (not full scenes with prompts)
                             sendEvent({
                                 type: 'complete',
+                                jobId: jobId,
                                 totalScenes: scenes.length,
-                                scenes: scenes
+                                scenes: scenes.map(s => ({
+                                    sceneNumber: s.sceneNumber,
+                                    storyText: s.storyText
+                                    // imagePrompt intentionally omitted
+                                }))
                             });
 
                         } else {

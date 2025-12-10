@@ -3,16 +3,18 @@
 interface Scene {
     sceneNumber: number;
     storyText: string;
-    imagePrompt: string;
+    // imagePrompt is stored in database only, not displayed to users
 }
 
 interface StoryPreviewProps {
     scenes: Scene[];
     isGenerating: boolean;
     generatingMessage?: string;
+    jobId?: string;
+    onGenerateBook?: () => void;
 }
 
-export function StoryPreview({ scenes, isGenerating, generatingMessage }: StoryPreviewProps) {
+export function StoryPreview({ scenes, isGenerating, generatingMessage, jobId, onGenerateBook }: StoryPreviewProps) {
     if (isGenerating && scenes.length === 0) {
         return (
             <div className="text-center py-12">
@@ -56,19 +58,9 @@ export function StoryPreview({ scenes, isGenerating, generatingMessage }: StoryP
 
                             {/* Scene Content */}
                             <div className="flex-1 p-4">
-                                <p className="text-gray-800 font-medium mb-2">
+                                <p className="text-gray-800 font-medium">
                                     {scene.storyText}
                                 </p>
-
-                                {/* Expandable Image Prompt (for debugging/preview) */}
-                                <details className="text-sm">
-                                    <summary className="text-purple-600 cursor-pointer hover:text-purple-700">
-                                        View image prompt
-                                    </summary>
-                                    <p className="mt-2 text-gray-500 text-xs leading-relaxed bg-gray-50 p-3 rounded-lg">
-                                        {scene.imagePrompt}
-                                    </p>
-                                </details>
                             </div>
                         </div>
                     </div>
@@ -84,14 +76,17 @@ export function StoryPreview({ scenes, isGenerating, generatingMessage }: StoryP
             )}
 
             {/* Next Steps CTA */}
-            {!isGenerating && scenes.length >= 25 && (
+            {!isGenerating && scenes.length >= 25 && jobId && (
                 <div className="bg-gradient-to-r from-purple-600 to-indigo-600 rounded-2xl p-8 text-center text-white">
                     <h4 className="text-2xl font-bold mb-3">Ready to Create Your Book?</h4>
                     <p className="text-purple-100 mb-6">
-                        Your story is complete! Choose your book options below to bring it to life.
+                        Your story is complete! Click below to generate your personalized coloring book.
                     </p>
-                    <button className="px-8 py-4 bg-white text-purple-600 font-bold rounded-xl hover:bg-purple-50 transition-colors">
-                        Continue to Book Options →
+                    <button
+                        onClick={onGenerateBook}
+                        className="px-8 py-4 bg-white text-purple-600 font-bold rounded-xl hover:bg-purple-50 transition-colors"
+                    >
+                        ✨ Generate My Coloring Book →
                     </button>
                 </div>
             )}

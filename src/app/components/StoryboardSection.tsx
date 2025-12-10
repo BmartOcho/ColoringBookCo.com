@@ -4,18 +4,19 @@ import { useState, useRef } from "react";
 import { StoryTypeSelection } from "./StoryTypeSelection";
 import { MadLibConversation } from "./MadLibConversation";
 import { StoryPreview } from "./StoryPreview";
+import { BookPreview } from "./BookPreview";
 
 interface Scene {
     sceneNumber: number;
     storyText: string;
-    imagePrompt: string;
+    // imagePrompt is stored in database only, not available on client
 }
 
-type StoryboardPhase = 'selection' | 'conversation' | 'generating' | 'complete';
+type StoryboardPhase = 'selection' | 'conversation' | 'generating' | 'complete' | 'book';
 
 interface StoryboardSectionProps {
     characterImage?: string; // Base64 of the generated coloring page character
-    onComplete?: (scenes: Scene[]) => void;
+    onComplete?: (jobId: string, scenes: Scene[]) => void;
 }
 
 export function StoryboardSection({ characterImage, onComplete }: StoryboardSectionProps) {
@@ -27,6 +28,7 @@ export function StoryboardSection({ characterImage, onComplete }: StoryboardSect
     const [interactionNumber, setInteractionNumber] = useState(1);
     const [plotPoints, setPlotPoints] = useState<string[]>([]);
     const [scenes, setScenes] = useState<Scene[]>([]);
+    const [jobId, setJobId] = useState<string | null>(null);
     const [isLoading, setIsLoading] = useState(false);
     const [generatingMessage, setGeneratingMessage] = useState("");
     const [error, setError] = useState<string | null>(null);
@@ -105,21 +107,29 @@ export function StoryboardSection({ characterImage, onComplete }: StoryboardSect
                 setPhase('generating');
                 setGeneratingMessage(data.message);
                 setScenes([]);
+                // Capture jobId when story generation starts
+                if (data.jobId) {
+                    setJobId(data.jobId);
+                }
                 break;
 
             case 'scene':
                 setScenes(prev => [...prev, {
                     sceneNumber: data.sceneNumber,
-                    storyText: data.storyText,
-                    imagePrompt: data.imagePrompt
+                    storyText: data.storyText
+                    // imagePrompt intentionally omitted from client
                 }]);
                 break;
 
             case 'complete':
                 setPhase('complete');
                 setIsLoading(false);
-                if (onComplete && data.scenes) {
-                    onComplete(data.scenes);
+                // Capture jobId on completion
+                if (data.jobId) {
+                    setJobId(data.jobId);
+                }
+                if (onComplete && data.jobId && data.scenes) {
+                    onComplete(data.jobId, data.scenes);
                 }
                 break;
 
@@ -161,6 +171,7 @@ export function StoryboardSection({ characterImage, onComplete }: StoryboardSect
                 action: 'continue',
                 storyType,
                 characterName,
+                characterImage, // Pass the character image for storage
                 userInput: input,
                 plotPoints,
                 interactionNumber
@@ -200,6 +211,13 @@ export function StoryboardSection({ characterImage, onComplete }: StoryboardSect
         }
     };
 
+    // Handle Generate Book button click
+    const handleGenerateBook = () => {
+        if (jobId) {
+            setPhase('book');
+        }
+    };
+
     return (
         <div ref={sectionRef} className="bg-white rounded-2xl shadow-xl border border-gray-200 overflow-hidden">
             {/* Header */}
@@ -210,6 +228,7 @@ export function StoryboardSection({ characterImage, onComplete }: StoryboardSect
                     {phase === 'conversation' && 'Answer a few questions to shape your story'}
                     {phase === 'generating' && 'AI is writing your personalized story...'}
                     {phase === 'complete' && 'Your story is ready!'}
+                    {phase === 'book' && 'Generating your coloring book pages...'}
                 </p>
             </div>
 
@@ -260,6 +279,16 @@ export function StoryboardSection({ characterImage, onComplete }: StoryboardSect
                         scenes={scenes}
                         isGenerating={phase === 'generating'}
                         generatingMessage={generatingMessage}
+                        jobId={jobId || undefined}
+                        onGenerateBook={handleGenerateBook}
+                    />
+                )}
+
+                {/* Phase: Book Generation */}
+                {phase === 'book' && jobId && (
+                    <BookPreview
+                        jobId={jobId}
+                        scenes={scenes}
                     />
                 )}
             </div>
