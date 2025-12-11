@@ -1,0 +1,176 @@
+1. IMAGE PROCESSING LOGIC (server/openai.ts)
+This converts uploaded photos to line art using OpenAI's gpt-image-1 model:
+
+import OpenAI, { toFile } from "openai";
+import pRetry, { AbortError } from "p-retry";
+const client = new OpenAI({
+  baseURL: process.env.AI_INTEGRATIONS_OPENAI_BASE_URL,
+  apiKey: process.env.AI_INTEGRATIONS_OPENAI_API_KEY,
+});
+export async function convertToColoringBook(imageBuffer: Buffer, fileName: string): Promise<string> {
+  return await pRetry(async () => {
+    const imageFile = await toFile(imageBuffer, fileName, { type: "image/png" });
+    const prompt = "Convert this photo into a clean, Disney-Pixar-style black and white line art drawing suitable for a children's coloring book. The output should have: Bold, clear outlines that are easy to color within. Disney-Pixar-like stylization of all features. High contrast black lines on white background. Accurate details that maintain recognizability. Kid-friendly aesthetic with smooth, rounded shapes. No shading, gradients, or color fills - only clean line art. Keep composition true to the original.";
+    const response = await client.images.edit({
+      model: "gpt-image-1",
+      image: imageFile,
+      prompt: prompt,
+      background: "opaque",
+      output_format: "png",
+      quality: "high",
+      size: "1024x1536",
+    });
+    return "data:image/png;base64," + response.data?.[0]?.b64_json;
+  }, { retries: 7, minTimeout: 2000, maxTimeout: 128000, factor: 2 });
+}
+
+2. VARIATION GENERATION (25+ Pages) (server/bookGenerator.ts)
+This creates multiple pages from one source image using the original photo as a reference:
+
+// Key functions:
+// Cover page generation
+async function generateCoverPage(story: any): Promise<string> {
+  const prompt = `A children's coloring book cover page with bold black line art on white background.
+Show the main character (matching the reference image exactly - same face, hair, body shape) in the center.
+Add decorative elements like stars, swirls, or flowers around the character.
+Style: Bold clean lines (3-4px black), simple shapes, high contrast, perfect for children to color.
+IMPORTANT: Illustration only - absolutely NO text, NO letters, NO words, NO titles, NO captions, NO writing of any kind.`;
+  const referenceImage = story.originalImageData || story.characterImageData;
+  return await generateIllustrationWithReference(prompt, referenceImage, story.characterName);
+}
+// Page variation generation with character reference
+export async function generateIllustrationWithReference(
+  prompt: string, 
+  referenceImageData: string,
+  characterName: string
+): Promise<string> {
+  const fullPrompt = `${prompt}
+CHARACTER REFERENCE: Match the character in the reference image exactly - same facial features, hair, body proportions.
+STYLE: Children's coloring book page - bold black line art (3-4px), white background, high contrast, simple shapes.
+NO TEXT ALLOWED: Do not include ANY text, letters, words, titles, captions, labels, or writing in the image.`;
+  const base64Data = referenceImageData.replace(/^data:image\/\w+;base64,/, '');
+  const imageBuffer = Buffer.from(base64Data, 'base64');
+  const imageFile = await toFile(imageBuffer, 'reference.png', { type: 'image/png' });
+  
+  const response = await openai.images.edit({
+    model: 'gpt-image-1',
+    image: imageFile,
+    prompt: fullPrompt,
+    n: 1,
+    size: '1024x1536',
+  });
+  return `data:image/png;base64,${response.data?.[0]?.b64_json}`;
+}
+// Scene prompt generator - creates unique scenes for each page
+function createScenePrompt(characterName: string, storyType: string, sectionText: string, pageIndex: number, totalPagesInSection: number): string {
+  const sceneDescriptions = [
+    'the beginning of the adventure',
+    'an exciting moment',
+    'meeting new friends',
+    'facing a challenge',
+    'a moment of discovery',
+    'celebrating success',
+  ];
+  
+  const sceneType = sceneDescriptions[pageIndex % sceneDescriptions.length];
+  
+  return `Coloring book illustration: ${characterName} during ${sceneType}.
+Show the character actively engaged. Style: bold black line art on white background.
+NO TEXT in the image.`;
+}
+
+3. STORY GENERATION ENGINE (server/story.ts)
+Mad-libs style story creation with AI:
+
+const storyTypePrompts: Record<StoryType, string> = {
+  adventure: "an exciting adventure story involving treasure hunting, discovering lost civilizations, or embarking on epic journeys",
+  hero: "a heroic tale involving brave deeds, overcoming challenges, saving others, or facing mythical creatures",
+  explorer: "an exploration story involving discovering new places on Earth, in space, under the sea, or in mysterious lands",
+  dream_career: "an inspiring story about pursuing their dream career, showing the journey from childhood dream to achieving their goal",
+};
+// Generates fill-in-the-blank prompts
+export async function generateSectionPrompt(characterName: string, storyType: StoryType, sectionNumber: number, previousSections: []): Promise<SectionPromptResponse> {
+  const response = await client.chat.completions.create({
+    model: "gpt-4.1-mini",
+    messages: [
+      { role: "system", content: systemPrompt },
+      { role: "user", content: userPrompt },
+    ],
+    response_format: { type: "json_object" },
+    temperature: 0.8,
+  });
+  // Returns: { prompt: "...", blanks: [{ key: "BLANK_KEY", label: "...", placeholder: "..." }] }
+}
+// Generates 100-150 word story sections
+export async function generateSectionText(...): Promise<string> {
+  const response = await client.chat.completions.create({
+    model: "gpt-4.1-mini",
+    messages: [...],
+    temperature: 0.7,
+    max_tokens: 500,
+  });
+  return response.choices[0]?.message?.content;
+}
+
+4. VECTORIZATION FOR PRINT QUALITY (server/vectorizer.ts)
+Uses potrace to convert raster images to crisp SVG:
+
+import potrace from 'potrace';
+export async function vectorizeColoringPage(imageDataUrl: string): Promise<string> {
+  return vectorizeImage(imageDataUrl, {
+    turdSize: 4,        // Remove small noise/artifacts
+    threshold: 140,     // Adjust for line art visibility
+    optCurve: true,     // Smooth curves
+    optTolerance: 0.3,  // Balanced curve optimization
+    blackOnWhite: true, // Line art is black on white
+  });
+}
+
+5. PDF ASSEMBLY (server/pdfAssembler.ts)
+Assembles pages into print-ready PDF with Oswald font:
+
+import PDFDocument from 'pdfkit';
+import SVGtoPDF from 'svg-to-pdfkit';
+// Letter size: 612x792 points (8.5x11 inches)
+// Uses vectorized SVG for crisp output at any print size
+// Adds story text at bottom of each page with Oswald font
+// Page numbers in footer
+
+6. CONFIGURATION / ENVIRONMENT VARIABLES
+# OpenAI API (via Replit AI Integrations)
+AI_INTEGRATIONS_OPENAI_BASE_URL   # Replit-managed OpenAI endpoint
+AI_INTEGRATIONS_OPENAI_API_KEY    # Replit-managed API key
+# Stripe (payment processing)
+STRIPE_SECRET_KEY
+# Database (PostgreSQL via Neon)
+DATABASE_URL
+PGHOST, PGPORT, PGUSER, PGPASSWORD, PGDATABASE
+# Session management
+SESSION_SECRET
+# Domain configuration
+REPLIT_DOMAINS
+REPLIT_DEV_DOMAIN
+
+7. KEY NPM PACKAGES
+"openai": "^4.x",      // Image generation API
+"pdfkit": "^0.x",      // PDF creation
+"svg-to-pdfkit": "^0.x", // Vector graphics in PDF
+"potrace": "^2.x",     // Raster to vector conversion
+"p-retry": "^5.x",     // Retry logic for API calls
+"drizzle-orm": "^0.x", // Database ORM
+"stripe": "^x.x",      // Payment processing
+"resend": "^x.x"       // Email notifications
+
+SUMMARY OF THE FLOW
+User uploads photo → openai.ts converts to line art using gpt-image-1
+User builds story → story.ts generates mad-lib prompts and story text
+User orders book → Stripe payment processed
+Book generation starts → bookGenerator.ts:
+Generates cover page using original photo as reference
+Generates 25 unique scene illustrations (5 per story section)
+Each page uses the original photo as character reference for consistency
+PDF assembly → pdfAssembler.ts:
+Vectorizes each image with potrace for print quality
+Embeds SVG graphics in PDF
+Adds story text with Oswald font at bottom of pages
+Notification → Email sent when ready with download link

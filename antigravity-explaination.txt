@@ -1,0 +1,110 @@
+Here is the information you need to share for the new variation of the app. I've broken it down by your request categories, distinguishing between the working Next.js App (single image flow) and the Python Storyboard Engine (variation flow), as they use different approaches.
+
+1. Image Processing Logic (Line Art/Outlines)
+The app currently has two different methods for this.
+
+Method A: The "Working App" (Next.js API) Uses a 2-step OpenAI process: Photo -> 3D Pixar Style -> Line Art. File: 
+src/app/api/generate/route.ts
+
+typescript
+// STEP 2: Vectorize with gpt-image-1-mini
+// It takes the cartoon output from Step 1 and converts it.
+const step2FormData = new FormData();
+step2FormData.append("model", "gpt-image-1-mini");
+step2FormData.append("prompt", "Convert this 3D character into a clean, black and white coloring book page. Thick bold outlines, no shading, no grayscale, pure white background. Keep the character's details recognizable but simplified for coloring.");
+Method B: The Python Engine (Storyboard) Uses potrace locally to convert generated images to SVG vectors. File: 
+storyboard_engine/vectorizer.py
+
+python
+# Uses CLI tool 'potrace'
+subprocess.run(["potrace", bmp_path, "-s", "-o", output_svg_path], check=True)
+2. Variation Generation (25+ Pages)
+This logic lives in the Python Storyboard Engine. It works by taking a story string, breaking it into scenes using LLM, and generating images for each scene.
+
+File: 
+storyboard_engine/main.py
+
+Workflow: Monitors a folder -> Reads story.txt -> Generates Prompts -> Generates Images -> Vectorizes.
+Key Logic:
+Story Decomposition: Uses Gemini to break text into JSON list of visual prompts.
+Consistency: Uses Replicate's ip-adapter-sdxl (Image Prompt Adapter) to keep the character consistent across all 25 scenes using the source.png.
+3. API Integration Files
+OpenAI (used in Main App)
+
+File: 
+src/app/api/generate/route.ts
+Endpoints: https://api.openai.com/v1/images/edits
+Models: gpt-image-1 (Step 1), gpt-image-1-mini (Step 2)
+Replicate (used in Python Engine)
+
+File: 
+storyboard_engine/image_generator.py
+Model: stability-ai/sdxl with IP-Adapter control.
+python
+self.client.run(
+    "stability-ai/sdxl:39ed52f2a78e934b3ba6e2a89f5b1c712de7dfe...",
+    input={
+        "prompt": prompt + ", line art, coloring book style...",
+        "image": source_file, # This ensures character consistency
+        "prompt_strength": 0.5
+    }
+)
+Google Gemini (used in Python Engine)
+
+File: 
+storyboard_engine/story_processor.py
+Model: gemini-2.0-flash
+Usage: Converts story text into scene descriptions.
+4. Configuration
+You need these environment variables.
+
+For the Next.js App (
+.env.local
+):
+
+env
+OPENAI_API_KEY=sk-...
+For the Python Engine (
+storyboard_engine/.env
+):
+
+env
+GOOGLE_API_KEY=AIza...
+REPLICATE_API_TOKEN=r8_...
+Python Dependencies (
+requirements.txt
+): replicate, google-generativeai, watchdog, python-dotenv, requests, Pillow, numpy
+
+5. Python Scripts
+All relevant scripts are in storyboard_engine/:
+
+main.py
+: The entry point and file watcher.
+image_generator.py
+: Handles Replicate API calls.
+story_processor.py
+: Handles Google Gemini API calls for text.
+vectorizer.py
+: Handles local potrace vectorization.
+6. Storyboard Engine Files
+The engine expects this folder structure to run:
+
+input_stories/: Drop a folder here containing story.txt and source.png to trigger generation.
+output_storyboards/: Where results appear.
+processed_stories/: Where inputs are moved after completion.
+7. Prompts & Parameters
+App Prompt (Image -> Cartoon):
+
+"Turn this person into a 3D Disney Pixar character. Cute, big eyes, smooth skin, vibrant colors. Keep the pose and expression matching the original. White background."
+
+App Prompt (Cartoon -> Line Art):
+
+"Convert this 3D character into a clean, black and white coloring book page. Thick bold outlines, no shading, no grayscale, pure white background. Keep the character's details recognizable but simplified for coloring."
+
+Engine Prompt (Story -> Scenes):
+
+"The style should be: 'black and white coloring book page, clean line art, no shading, white background'... Return ONLY a JSON array of strings... Include '(character)' in the prompt..."
+
+Engine Prompt (Image Generation):
+
+[SCENE_DESCRIPTION] + ", line art, coloring book style, black and white" Negative Prompt: "shading, gradient, gray, color, text, watermark, blurry, realistic, photo, 3d render"
